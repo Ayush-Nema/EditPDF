@@ -124,20 +124,111 @@ def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
     return (r / 255.0, g / 255.0, b / 255.0)
 
 
+# Bullet markers: Unicode bullets, Private Use Area (common in PDF symbol
+# fonts), and ASCII markers that require a trailing space.
+_BULLET_RE = re.compile(
+    r"^\s*(?:[\u2022\u2023\u25E6\u2043\u2219\u00B7\u25AA\u25B8\u25BA\u25CB\u25CF]"
+    r"|[\uE000-\uF8FF]"                       # Private Use Area (PDF symbol fonts)
+    r"|[\u2013\u2014\-\*]\s"                   # dashes / asterisk + space
+    r"|\d+[.\)]\s"                             # numbered lists
+    r"|[a-zA-Z][.\)]\s)"                       # lettered lists
+)
+
+# Font families that are almost always decorative bullet/symbol glyphs.
+_SYMBOL_FONT_HINTS = {"symbol", "zapf", "dingbat", "wingding", "webding", "bullet"}
+
+
+def _line_is_bullet(line) -> bool:
+    """Check if a PyMuPDF text-dict line starts with a bullet marker."""
+    for span in line["spans"]:
+        text = span["text"]
+        if not text.strip():
+            continue
+        # First non-empty span in a symbol font → bullet
+        font_lower = span["font"].lower().replace(" ", "")
+        if any(hint in font_lower for hint in _SYMBOL_FONT_HINTS):
+            return True
+        # Text-content check
+        return bool(_BULLET_RE.match(text))
+    return False
+
+
+def _collect_block_lines(block):
+    """Return [(line_text, line_bbox, is_bullet), ...] and first non-empty span."""
+    lines = []
+    first_span = None
+    for line in block["lines"]:
+        parts = []
+        for span in line["spans"]:
+            if not span["text"].strip():
+                continue
+            if first_span is None:
+                first_span = span
+            parts.append(span["text"])
+        text = "".join(parts)
+        if text.strip():
+            lines.append((text, line["bbox"], _line_is_bullet(line)))
+    return lines, first_span
+
+
+def _union_bbox(bboxes):
+    """Compute the bounding box that encloses all given bboxes."""
+    return (
+        min(b[0] for b in bboxes),
+        min(b[1] for b in bboxes),
+        max(b[2] for b in bboxes),
+        max(b[3] for b in bboxes)
+    )
+
+
+def _split_block(block):
+    """Split a text block into logical items.
+
+    Paragraphs stay as one item; bullet lists are split so each bullet
+    point (possibly multi-line) becomes its own item.
+
+    Yields (text, bbox, first_span) tuples.
+    """
+    lines, first_span = _collect_block_lines(block)
+    if not lines or first_span is None:
+        return
+
+    has_bullets = any(is_b for _, _, is_b in lines)
+    if not has_bullets:
+        yield "\n".join(t for t, _, _ in lines), block["bbox"], first_span
+        return
+
+    # Group lines into bullet items; a new bullet starts a new group,
+    # non-bullet lines are continuations of the previous group.
+    current: list[tuple[str, tuple]] = []
+    for text, bbox, is_bullet in lines:
+        if is_bullet and current:
+            joined = "\n".join(t for t, _ in current)
+            yield joined, _union_bbox([b for _, b in current]), first_span
+            current = [(text, bbox)]
+        else:
+            current.append((text, bbox))
+    if current:
+        joined = "\n".join(t for t, _ in current)
+        yield joined, _union_bbox([b for _, b in current]), first_span
+
+
 def _find_span_by_index(page, span_index: int) -> dict | None:
-    """Extract spans and return the one matching span_index."""
+    """Find the text item matching span_index and return aggregated info."""
     data = page.get_text("dict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE)
     index = 0
     for block in data["blocks"]:
         if block["type"] != 0:
             continue
-        for line in block["lines"]:
-            for span in line["spans"]:
-                if not span["text"].strip():
-                    continue
-                if index == span_index:
-                    return span
-                index += 1
+        for _text, bbox, first_span in _split_block(block):
+            if index == span_index:
+                return {
+                    "bbox": bbox,
+                    "font": first_span["font"],
+                    "size": first_span["size"],
+                    "color": first_span["color"],
+                }
+            index += 1
     return None
 
 
@@ -196,21 +287,17 @@ def extract_text_spans(doc_id: str, page_num: int) -> dict:
         for block in data["blocks"]:
             if block["type"] != 0:  # text blocks only
                 continue
-            for line in block["lines"]:
-                for span in line["spans"]:
-                    text = span["text"]
-                    if not text.strip():
-                        continue
-                    spans.append({
-                        "index": index,
-                        "text": text,
-                        "bbox": list(span["bbox"]),
-                        "font": span["font"],
-                        "size": round(span["size"], 2),
-                        "color": _int_to_hex_color(span["color"]),
-                        "flags": span["flags"],
-                    })
-                    index += 1
+            for text, bbox, first_span in _split_block(block):
+                spans.append({
+                    "index": index,
+                    "text": text,
+                    "bbox": list(bbox),
+                    "font": first_span["font"],
+                    "size": round(first_span["size"], 2),
+                    "color": _int_to_hex_color(first_span["color"]),
+                    "flags": first_span["flags"],
+                })
+                index += 1
 
         return {
             "page_num": page_num,
