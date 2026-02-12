@@ -1,6 +1,6 @@
 # EditPDF
 
-A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered pages, inspect text properties (font, size, color), edit or delete text spans, add new text, and download the modified PDF — all from your browser.
+A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered pages, inspect text properties (font, size, color), edit or delete text spans, add new text, insert/move/resize images, and download the modified PDF — all from your browser. Full undo/redo support.
 
 ## Tech Stack
 
@@ -16,7 +16,9 @@ A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered page
 3. Click any text span to see its font, size, and color in the properties panel
 4. Edit the text or properties and click Apply — the backend redacts the old text and inserts the replacement
 5. Add new text by enabling Add Mode and clicking on the page
-6. Download the final PDF with all edits preserved
+6. Insert, move, resize, or delete images
+7. Undo/redo any change with keyboard shortcuts
+8. Download the final PDF with all edits preserved
 
 ## Project Structure
 
@@ -87,7 +89,24 @@ Open http://localhost:8000.
 | `GET` | `/api/documents/{doc_id}/pages/{page_num}/text` | Text spans with font/size/color/bbox |
 | `POST` | `/api/documents/{doc_id}/pages/{page_num}/edit` | Edit or delete a text span |
 | `POST` | `/api/documents/{doc_id}/pages/{page_num}/add` | Add new text at coordinates |
+| `POST` | `/api/documents/{doc_id}/pages/{page_num}/add-image` | Insert an image (multipart form) |
+| `GET` | `/api/documents/{doc_id}/pages/{page_num}/images` | List image placements on a page |
+| `POST` | `/api/documents/{doc_id}/pages/{page_num}/move-image` | Move an image |
+| `POST` | `/api/documents/{doc_id}/pages/{page_num}/resize-image` | Resize an image |
+| `POST` | `/api/documents/{doc_id}/pages/{page_num}/delete-image` | Delete an image |
+| `POST` | `/api/documents/{doc_id}/undo` | Undo last edit |
+| `POST` | `/api/documents/{doc_id}/redo` | Redo last undone edit |
 | `GET` | `/api/documents/{doc_id}/download` | Download the edited PDF |
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Z` (or `Cmd+Z`) | Undo |
+| `Ctrl+Y` (or `Cmd+Y` / `Cmd+Shift+Z`) | Redo |
+| `Delete` / `Backspace` | Delete selected image or text span |
+
+Shortcuts are disabled when an input field is focused.
 
 ## Known Limitations
 

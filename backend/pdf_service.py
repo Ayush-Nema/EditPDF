@@ -10,6 +10,56 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
+# Undo/redo snapshot stacks (in-memory, per document)
+_undo_stacks: dict[str, list[bytes]] = {}
+_redo_stacks: dict[str, list[bytes]] = {}
+MAX_UNDO = 20
+
+
+def _snapshot(doc_id: str) -> None:
+    """Save current PDF bytes to the undo stack before a mutation."""
+    _validate_doc_id(doc_id)
+    path = UPLOAD_DIR / f"{doc_id}.pdf"
+    if not path.exists():
+        return
+    pdf_bytes = path.read_bytes()
+    stack = _undo_stacks.setdefault(doc_id, [])
+    stack.append(pdf_bytes)
+    if len(stack) > MAX_UNDO:
+        stack.pop(0)
+    # Any new mutation clears the redo stack
+    _redo_stacks.pop(doc_id, None)
+
+
+def undo(doc_id: str) -> bool:
+    """Restore the previous PDF snapshot. Returns True if undo was performed."""
+    _validate_doc_id(doc_id)
+    stack = _undo_stacks.get(doc_id)
+    if not stack:
+        return False
+    path = UPLOAD_DIR / f"{doc_id}.pdf"
+    # Push current state to redo stack
+    redo_stack = _redo_stacks.setdefault(doc_id, [])
+    redo_stack.append(path.read_bytes())
+    # Restore previous state
+    path.write_bytes(stack.pop())
+    return True
+
+
+def redo(doc_id: str) -> bool:
+    """Re-apply the last undone operation. Returns True if redo was performed."""
+    _validate_doc_id(doc_id)
+    stack = _redo_stacks.get(doc_id)
+    if not stack:
+        return False
+    path = UPLOAD_DIR / f"{doc_id}.pdf"
+    # Push current state to undo stack
+    undo_stack = _undo_stacks.setdefault(doc_id, [])
+    undo_stack.append(path.read_bytes())
+    # Restore redo state
+    path.write_bytes(stack.pop())
+    return True
+
 _DOC_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
 # Map common PDF font names to Base14 equivalents
@@ -176,6 +226,7 @@ def edit_span(doc_id: str, page_num: int, span_index: int,
               new_text: str, font: str | None = None,
               size: float | None = None, color: str | None = None) -> None:
     """Edit a text span using redact + re-insert."""
+    _snapshot(doc_id)
     doc = _open_doc(doc_id)
     try:
         page = doc[page_num]
@@ -239,6 +290,7 @@ def add_text(doc_id: str, page_num: int, x: float, y: float,
              text: str, font: str = "helv", size: float = 12.0,
              color: str = "#000000") -> None:
     """Add new text at the given coordinates."""
+    _snapshot(doc_id)
     doc = _open_doc(doc_id)
     try:
         page = doc[page_num]
@@ -263,6 +315,201 @@ def add_text(doc_id: str, page_num: int, x: float, y: float,
         doc.save(str(path), incremental=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
     finally:
         doc.close()
+
+
+def add_image(doc_id: str, page_num: int, x: float, y: float,
+              image_bytes: bytes, width: float = 0, height: float = 0) -> None:
+    """Insert an image at the given coordinates on a page."""
+    _snapshot(doc_id)
+    doc = _open_doc(doc_id)
+    try:
+        page = doc[page_num]
+
+        # Determine image dimensions from the image itself if not specified
+        if width <= 0 or height <= 0:
+            tmp_pix = pymupdf.Pixmap(image_bytes)
+            img_w, img_h = tmp_pix.width, tmp_pix.height
+            tmp_pix = None
+            # Scale down to fit on page if needed, default to 200px wide
+            scale = min(200 / img_w, (page.rect.width - x - 10) / img_w)
+            if width <= 0:
+                width = img_w * scale
+            if height <= 0:
+                height = img_h * scale
+
+        # Clamp to page bounds
+        x1 = min(x + width, page.rect.width - 5)
+        y1 = min(y + height, page.rect.height - 5)
+        rect = pymupdf.Rect(x, y, x1, y1)
+
+        page.insert_image(rect, stream=image_bytes)
+
+        path = UPLOAD_DIR / f"{doc_id}.pdf"
+        doc.save(str(path), incremental=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
+    finally:
+        doc.close()
+
+
+def _save_full(doc, doc_id: str) -> None:
+    """Non-incremental save with garbage collection (required after redaction).
+
+    PyMuPDF won't allow non-incremental save to the same open file,
+    so we serialize to bytes, close the doc, and overwrite the file.
+    """
+    pdf_bytes = doc.tobytes(garbage=3, deflate=True)
+    doc.close()
+    path = UPLOAD_DIR / f"{doc_id}.pdf"
+    path.write_bytes(pdf_bytes)
+
+
+def extract_images(doc_id: str, page_num: int) -> dict:
+    """List all image placements on a page."""
+    doc = _open_doc(doc_id)
+    try:
+        if page_num < 0 or page_num >= len(doc):
+            raise IndexError(f"Page {page_num} out of range")
+        page = doc[page_num]
+        page_rect = page.rect
+
+        images = []
+        index = 0
+        for img in page.get_images(full=True):
+            xref = img[0]
+            # Skip transparent-pixel placeholders left by delete_image()
+            if img[2] <= 1 and img[3] <= 1:
+                continue
+            rects = page.get_image_rects(xref)
+            for rect in rects:
+                images.append({
+                    "index": index,
+                    "bbox": [rect.x0, rect.y0, rect.x1, rect.y1],
+                    "width": rect.width,
+                    "height": rect.height,
+                    "xref": xref,
+                })
+                index += 1
+
+        return {
+            "page_num": page_num,
+            "width": page_rect.width,
+            "height": page_rect.height,
+            "images": images,
+        }
+    finally:
+        doc.close()
+
+
+def _find_image_by_index(page, image_index: int):
+    """Resolve an image index to (xref, Rect)."""
+    index = 0
+    for img in page.get_images(full=True):
+        xref = img[0]
+        # Skip transparent-pixel placeholders left by delete_image()
+        if img[2] <= 1 and img[3] <= 1:
+            continue
+        rects = page.get_image_rects(xref)
+        for rect in rects:
+            if index == image_index:
+                return xref, rect
+            index += 1
+    return None
+
+
+def delete_image(doc_id: str, page_num: int, image_index: int) -> None:
+    """Delete an image without affecting surrounding text."""
+    _snapshot(doc_id)
+    doc = _open_doc(doc_id)
+    try:
+        if page_num < 0 or page_num >= len(doc):
+            raise IndexError(f"Page {page_num} out of range")
+        page = doc[page_num]
+        result = _find_image_by_index(page, image_index)
+        if result is None:
+            raise IndexError(f"Image {image_index} not found")
+
+        xref, _rect = result
+        page.delete_image(xref)
+        _save_full(doc, doc_id)
+    finally:
+        if not doc.is_closed:
+            doc.close()
+
+
+def move_image(doc_id: str, page_num: int, image_index: int,
+               new_x: float, new_y: float) -> None:
+    """Move an image to new coordinates, preserving original dimensions."""
+    _snapshot(doc_id)
+    doc = _open_doc(doc_id)
+    try:
+        if page_num < 0 or page_num >= len(doc):
+            raise IndexError(f"Page {page_num} out of range")
+        page = doc[page_num]
+        result = _find_image_by_index(page, image_index)
+        if result is None:
+            raise IndexError(f"Image {image_index} not found")
+
+        xref, old_rect = result
+        img_data = doc.extract_image(xref)
+        img_bytes = img_data["image"]
+
+        # Preserve original dimensions
+        w = old_rect.width
+        h = old_rect.height
+
+        # Clamp to page bounds
+        page_rect = page.rect
+        new_x = max(0, min(new_x, page_rect.width - w))
+        new_y = max(0, min(new_y, page_rect.height - h))
+        new_rect = pymupdf.Rect(new_x, new_y, new_x + w, new_y + h)
+
+        # Remove old image (replaces with transparent pixel, preserves text)
+        page.delete_image(xref)
+
+        # Insert at new position
+        page.insert_image(new_rect, stream=img_bytes)
+        _save_full(doc, doc_id)
+    finally:
+        if not doc.is_closed:
+            doc.close()
+
+
+def resize_image(doc_id: str, page_num: int, image_index: int,
+                 new_x: float, new_y: float,
+                 new_w: float, new_h: float) -> None:
+    """Resize and reposition an image."""
+    _snapshot(doc_id)
+    doc = _open_doc(doc_id)
+    try:
+        if page_num < 0 or page_num >= len(doc):
+            raise IndexError(f"Page {page_num} out of range")
+        page = doc[page_num]
+        result = _find_image_by_index(page, image_index)
+        if result is None:
+            raise IndexError(f"Image {image_index} not found")
+
+        xref, old_rect = result
+        img_data = doc.extract_image(xref)
+        img_bytes = img_data["image"]
+
+        # Enforce minimum size
+        new_w = max(10, new_w)
+        new_h = max(10, new_h)
+
+        # Clamp to page bounds
+        page_rect = page.rect
+        new_x = max(0, min(new_x, page_rect.width - new_w))
+        new_y = max(0, min(new_y, page_rect.height - new_h))
+        new_rect = pymupdf.Rect(new_x, new_y, new_x + new_w, new_y + new_h)
+
+        # Remove old image (replaces with transparent pixel, preserves text)
+        page.delete_image(xref)
+
+        # Insert at new size/position
+        page.insert_image(new_rect, stream=img_bytes)
+        _save_full(doc, doc_id)
+    finally:
+        if not doc.is_closed:
+            doc.close()
 
 
 def get_pdf_bytes(doc_id: str) -> bytes:

@@ -38,3 +38,36 @@ class AddTextRequest(BaseModel):
     font: str = "helv"
     size: float = 12.0
     color: str = "#000000"
+
+
+class ImageInfo(BaseModel):
+    index: int
+    bbox: list[float]  # [x0, y0, x1, y1]
+    width: float
+    height: float
+    xref: int
+
+
+class PageImagesResponse(BaseModel):
+    page_num: int
+    width: float
+    height: float
+    images: list[ImageInfo]
+
+
+class MoveImageRequest(BaseModel):
+    image_index: int
+    x: float
+    y: float
+
+
+class ResizeImageRequest(BaseModel):
+    image_index: int
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class DeleteImageRequest(BaseModel):
+    image_index: int

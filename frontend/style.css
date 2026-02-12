@@ -224,6 +224,10 @@ aside h2 {
   cursor: pointer;
 }
 
+.prop-group input[type="file"] {
+  font-size: 0.8rem;
+}
+
 .prop-row {
   display: flex;
   gap: 12px;
@@ -253,6 +257,75 @@ hr {
   font-size: 0.8rem;
   color: var(--text-muted);
   margin-bottom: 12px;
+}
+
+/* Image drag preview */
+#img-preview-rect {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: rgba(233, 69, 96, 0.1);
+  pointer-events: none;
+  display: none;
+}
+
+#img-preview-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.5;
+}
+
+/* Image overlays */
+.image-overlay {
+  position: absolute;
+  cursor: move;
+  border: 2px solid transparent;
+  transition: border-color 0.1s;
+}
+
+.image-overlay:hover {
+  border-color: rgba(100, 180, 255, 0.5);
+}
+
+.image-overlay.selected {
+  border-color: #64b4ff;
+}
+
+.resize-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #64b4ff;
+  border: 1px solid #fff;
+  display: none;
+}
+
+.image-overlay.selected .resize-handle {
+  display: block;
+}
+
+.handle-nw {
+  top: -5px;
+  left: -5px;
+  cursor: nw-resize;
+}
+
+.handle-ne {
+  top: -5px;
+  right: -5px;
+  cursor: ne-resize;
+}
+
+.handle-sw {
+  bottom: -5px;
+  left: -5px;
+  cursor: sw-resize;
+}
+
+.handle-se {
+  bottom: -5px;
+  right: -5px;
+  cursor: se-resize;
 }
 
 /* Loading spinner */

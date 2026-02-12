@@ -29,7 +29,9 @@
         </div>
         <div id="page-viewport">
           <img id="page-image" alt="PDF page">
-          <div id="span-overlay"></div>
+          <div id="span-overlay">
+            <div id="img-preview-rect"><img id="img-preview-thumb" alt=""></div>
+          </div>
         </div>
       </div>
     </div>
@@ -61,6 +63,32 @@
         </div>
       </div>
 
+      <div id="img-props" hidden>
+        <div class="prop-row">
+          <div class="prop-group">
+            <label>X</label>
+            <input id="img-prop-x" type="number" step="1" readonly>
+          </div>
+          <div class="prop-group">
+            <label>Y</label>
+            <input id="img-prop-y" type="number" step="1" readonly>
+          </div>
+        </div>
+        <div class="prop-row">
+          <div class="prop-group">
+            <label>Width</label>
+            <input id="img-prop-w" type="number" step="1" readonly>
+          </div>
+          <div class="prop-group">
+            <label>Height</label>
+            <input id="img-prop-h" type="number" step="1" readonly>
+          </div>
+        </div>
+        <div class="prop-actions">
+          <button id="img-delete-btn" class="btn btn-danger">Delete Image</button>
+        </div>
+      </div>
+
       <hr>
 
       <h2>Add Text</h2>
@@ -80,6 +108,16 @@
         </div>
       </div>
       <button id="add-mode-btn" class="btn">Enable Add Mode</button>
+
+      <hr>
+
+      <h2>Add Image</h2>
+      <p class="hint">Select an image, then click &amp; drag on the page to place it</p>
+      <div class="prop-group">
+        <label for="img-file">Image</label>
+        <input id="img-file" type="file" accept="image/*">
+      </div>
+      <button id="img-mode-btn" class="btn">Enable Image Mode</button>
     </aside>
   </main>
 
