@@ -1,0 +1,97 @@
+# EditPDF
+
+A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered pages, inspect text properties (font, size, color), edit or delete text spans, add new text, and download the modified PDF — all from your browser.
+
+## Tech Stack
+
+- **Backend**: Python, FastAPI, PyMuPDF (pymupdf), managed with `uv`
+- **Frontend**: Vanilla HTML/CSS/JS (no build step)
+- **Rendering**: Backend renders pages as PNG via `page.get_pixmap()` — pixel-perfect, no PDF.js needed
+- **Editing**: Redact + re-insert strategy preserves document structure (images, bookmarks, metadata)
+
+## How It Works
+
+1. Upload a PDF
+2. Pages render as images with transparent overlays positioned over each text span
+3. Click any text span to see its font, size, and color in the properties panel
+4. Edit the text or properties and click Apply — the backend redacts the old text and inserts the replacement
+5. Add new text by enabling Add Mode and clicking on the page
+6. Download the final PDF with all edits preserved
+
+## Project Structure
+
+```
+EditPDF/
+├── Dockerfile
+├── docker-compose.yml
+├── pyproject.toml
+├── backend/
+│   ├── __init__.py
+│   ├── main.py            # FastAPI app, routes, static file serving
+│   ├── pdf_service.py     # PyMuPDF operations (render, extract, edit)
+│   └── models.py          # Pydantic request/response models
+├── frontend/
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+└── uploads/               # Runtime storage for uploaded PDFs
+```
+
+## Setup
+
+### Docker (recommended)
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:8000 in your browser.
+
+To stop:
+
+```bash
+docker compose down
+```
+
+To rebuild after code changes:
+
+```bash
+docker compose up --build
+```
+
+To run in the background:
+
+```bash
+docker compose up --build -d
+docker compose logs -f    # view logs
+docker compose down       # stop
+```
+
+### Without Docker
+
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+Open http://localhost:8000.
+
+## API Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/upload` | Upload a PDF file |
+| `GET` | `/api/documents/{doc_id}/pages/{page_num}/image` | Rendered page as PNG |
+| `GET` | `/api/documents/{doc_id}/pages/{page_num}/text` | Text spans with font/size/color/bbox |
+| `POST` | `/api/documents/{doc_id}/pages/{page_num}/edit` | Edit or delete a text span |
+| `POST` | `/api/documents/{doc_id}/pages/{page_num}/add` | Add new text at coordinates |
+| `GET` | `/api/documents/{doc_id}/download` | Download the edited PDF |
+
+## Known Limitations
+
+- **Font substitution**: Embedded/subset fonts are replaced with the closest Base14 match (Helvetica, Times, Courier). A PDF using e.g. Garamond will have edits rendered in Helvetica.
+- **Single-span editing**: One text span at a time; no multi-span selection.
+- **No RTL/complex script support**.
+- **Upload limit**: 50 MB max file size.
