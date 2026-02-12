@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EditPDF</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>EditPDF</h1>
+    <div id="header-actions">
+      <label id="upload-btn" class="btn">
+        Upload PDF
+        <input type="file" id="file-input" accept=".pdf" hidden>
+      </label>
+      <button id="download-btn" class="btn" hidden>Download PDF</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="viewer-container">
+      <div id="empty-state">Upload a PDF to get started</div>
+      <div id="page-wrapper" hidden>
+        <div id="page-nav">
+          <button id="prev-btn" class="btn btn-sm" disabled>&larr; Prev</button>
+          <span id="page-info">Page 1 / 1</span>
+          <button id="next-btn" class="btn btn-sm" disabled>Next &rarr;</button>
+        </div>
+        <div id="page-viewport">
+          <img id="page-image" alt="PDF page">
+          <div id="span-overlay"></div>
+        </div>
+      </div>
+    </div>
+
+    <aside id="properties-panel" hidden>
+      <h2>Properties</h2>
+      <div id="span-props">
+        <div class="prop-group">
+          <label for="prop-text">Text</label>
+          <textarea id="prop-text" rows="3"></textarea>
+        </div>
+        <div class="prop-group">
+          <label for="prop-font">Font</label>
+          <input id="prop-font" type="text">
+        </div>
+        <div class="prop-row">
+          <div class="prop-group">
+            <label for="prop-size">Size</label>
+            <input id="prop-size" type="number" step="0.5" min="1">
+          </div>
+          <div class="prop-group">
+            <label for="prop-color">Color</label>
+            <input id="prop-color" type="color">
+          </div>
+        </div>
+        <div class="prop-actions">
+          <button id="apply-btn" class="btn btn-primary">Apply</button>
+          <button id="delete-btn" class="btn btn-danger">Delete</button>
+        </div>
+      </div>
+
+      <hr>
+
+      <h2>Add Text</h2>
+      <p class="hint">Click on the page to place text</p>
+      <div class="prop-group">
+        <label for="add-text">Text</label>
+        <textarea id="add-text" rows="2" placeholder="New text..."></textarea>
+      </div>
+      <div class="prop-row">
+        <div class="prop-group">
+          <label for="add-size">Size</label>
+          <input id="add-size" type="number" value="12" step="0.5" min="1">
+        </div>
+        <div class="prop-group">
+          <label for="add-color">Color</label>
+          <input id="add-color" type="color" value="#000000">
+        </div>
+      </div>
+      <button id="add-mode-btn" class="btn">Enable Add Mode</button>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

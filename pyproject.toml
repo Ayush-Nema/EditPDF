@@ -1,0 +1,11 @@
+[project]
+name = "editpdf"
+version = "0.1.0"
+description = "Local Docker-hosted PDF editor"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pymupdf>=1.25.0",
+    "python-multipart>=0.0.18",
+]
