@@ -1,3 +1,5 @@
+"""FastAPI application: routes, request handling, and static file serving."""
+
 import asyncio
 from functools import partial
 
@@ -6,6 +8,9 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import MAX_UPLOAD_SIZE
+from .document import get_pdf_bytes, render_page, save_upload
+from .history import redo, undo
+from .image_service import add_image, delete_image, extract_images, move_image, resize_image
 from .models import (
     AddTextRequest,
     DeleteImageRequest,
@@ -16,21 +21,7 @@ from .models import (
     ResizeImageRequest,
     UploadResponse,
 )
-from .pdf_service import (
-    add_image,
-    add_text,
-    delete_image,
-    edit_span,
-    extract_images,
-    extract_text_spans,
-    get_pdf_bytes,
-    move_image,
-    redo,
-    render_page,
-    resize_image,
-    save_upload,
-    undo,
-)
+from .text_service import add_text, edit_span, extract_text_spans
 
 app = FastAPI(title="EditPDF")
 

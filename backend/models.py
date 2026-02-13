@@ -1,3 +1,5 @@
+"""Pydantic request and response models for the API."""
+
 from pydantic import BaseModel
 
 from .config import DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_TEXT_COLOR

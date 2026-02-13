@@ -31,9 +31,12 @@ EditPDF/
 ├── backend/
 │   ├── __init__.py
 │   ├── config.py          # Centralised configuration constants
+│   ├── document.py        # Document lifecycle (validate, open, upload, render, download)
+│   ├── history.py         # Undo/redo snapshot logic
+│   ├── image_service.py   # Image extraction, add/delete/move/resize
 │   ├── main.py            # FastAPI app, routes, static file serving
 │   ├── models.py          # Pydantic request/response models
-│   └── pdf_service.py     # PyMuPDF operations (render, extract, edit)
+│   └── text_service.py    # Text extraction, editing, bullet detection, font/color helpers
 ├── frontend/
 │   ├── index.html
 │   ├── style.css
@@ -76,11 +79,22 @@ docker compose down       # stop
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
+uv sync                        # install project dependencies
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
 Open http://localhost:8000.
+
+### Useful uv commands
+
+```bash
+uv sync                        # install/update project dependencies from pyproject.toml
+uv run <command>               # run a command in the project's virtual environment
+uv add <package>               # add a new dependency to pyproject.toml
+uv remove <package>            # remove a dependency
+uv tool install <tool>         # install a standalone CLI tool (e.g. pre-commit)
+uv tool list                   # list installed CLI tools
+```
 
 ## API Endpoints
 
