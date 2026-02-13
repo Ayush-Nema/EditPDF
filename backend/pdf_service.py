@@ -1,19 +1,33 @@
 import hashlib
 import re
 import uuid
-from pathlib import Path
 
 import pymupdf
 
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
+from .config import (
+    DEFAULT_FONT,
+    DEFAULT_FONT_SIZE,
+    DEFAULT_IMAGE_WIDTH,
+    DEFAULT_RENDER_SCALE,
+    DEFAULT_TEXT_COLOR,
+    FONT_MAP,
+    IMAGE_PADDING,
+    LINE_HEIGHT_FACTOR,
+    MAX_UNDO,
+    MAX_UPLOAD_SIZE,
+    MIN_IMAGE_SIZE,
+    PAGE_MARGIN,
+    SYMBOL_FONT_HINTS,
+    TEXT_BOX_HEIGHT_FACTOR,
+    TEXT_WIDTH_PADDING,
+    UPLOAD_DIR,
+)
 
-MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 # Undo/redo snapshot stacks (in-memory, per document)
 _undo_stacks: dict[str, list[bytes]] = {}
 _redo_stacks: dict[str, list[bytes]] = {}
-MAX_UNDO = 20
 
 
 def _snapshot(doc_id: str) -> None:
@@ -62,20 +76,6 @@ def redo(doc_id: str) -> bool:
 
 _DOC_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
-# Map common PDF font names to Base14 equivalents
-_FONT_MAP = {
-    "helv": "helv",
-    "helvetica": "helv",
-    "arial": "helv",
-    "tisa": "helv",
-    "times": "tiro",
-    "timesnewroman": "tiro",
-    "times-roman": "tiro",
-    "courier": "cour",
-    "couriernew": "cour",
-    "symbol": "symb",
-    "zapfdingbats": "zadb",
-}
 
 
 def _validate_doc_id(doc_id: str) -> None:
@@ -90,7 +90,7 @@ def _normalize_font(font_name: str) -> str:
     # Strip subset prefix like "ABCDEF+"
     if "+" in key:
         key = key.split("+", 1)[1]
-    for pattern, base14 in _FONT_MAP.items():
+    for pattern, base14 in FONT_MAP.items():
         if pattern in key:
             if "bold" in key and "italic" in key:
                 return base14 + "bi"
@@ -134,8 +134,6 @@ _BULLET_RE = re.compile(
     r"|[a-zA-Z][.\)]\s)"                       # lettered lists
 )
 
-# Font families that are almost always decorative bullet/symbol glyphs.
-_SYMBOL_FONT_HINTS = {"symbol", "zapf", "dingbat", "wingding", "webding", "bullet"}
 
 
 def _line_is_bullet(line) -> bool:
@@ -146,7 +144,7 @@ def _line_is_bullet(line) -> bool:
             continue
         # First non-empty span in a symbol font → bullet
         font_lower = span["font"].lower().replace(" ", "")
-        if any(hint in font_lower for hint in _SYMBOL_FONT_HINTS):
+        if any(hint in font_lower for hint in SYMBOL_FONT_HINTS):
             return True
         # Text-content check
         return bool(_BULLET_RE.match(text))
@@ -258,7 +256,7 @@ def _open_doc(doc_id: str) -> pymupdf.Document:
     return pymupdf.open(str(path))
 
 
-def render_page(doc_id: str, page_num: int, scale: float = 2.0) -> bytes:
+def render_page(doc_id: str, page_num: int, scale: float = DEFAULT_RENDER_SCALE) -> bytes:
     """Render a page as PNG bytes."""
     doc = _open_doc(doc_id)
     try:
@@ -338,12 +336,12 @@ def edit_span(doc_id: str, page_num: int, span_index: int,
         if new_text:
             text_width = pymupdf.get_text_length(new_text, fontname=use_font, fontsize=use_size)
             # Ensure height fits at least one line
-            min_height = use_size * 1.3
+            min_height = use_size * LINE_HEIGHT_FACTOR
             if bbox.height < min_height:
                 bbox.y1 = bbox.y0 + min_height
             if text_width > bbox.width:
-                bbox.x1 = bbox.x0 + text_width + 2
-                bbox.x1 = min(bbox.x1, page.rect.width - 5)
+                bbox.x1 = bbox.x0 + text_width + TEXT_WIDTH_PADDING
+                bbox.x1 = min(bbox.x1, page.rect.width - PAGE_MARGIN)
 
             rc = page.insert_textbox(
                 bbox,
@@ -356,8 +354,8 @@ def edit_span(doc_id: str, page_num: int, span_index: int,
             # rc < 0 means text didn't fully fit — try again with taller box
             if rc < 0:
                 lines_needed = (-rc) + 1
-                bbox.y1 = bbox.y0 + use_size * 1.3 * lines_needed
-                bbox.y1 = min(bbox.y1, page.rect.height - 5)
+                bbox.y1 = bbox.y0 + use_size * LINE_HEIGHT_FACTOR * lines_needed
+                bbox.y1 = min(bbox.y1, page.rect.height - PAGE_MARGIN)
                 page.insert_textbox(
                     bbox,
                     new_text,
@@ -374,8 +372,8 @@ def edit_span(doc_id: str, page_num: int, span_index: int,
 
 
 def add_text(doc_id: str, page_num: int, x: float, y: float,
-             text: str, font: str = "helv", size: float = 12.0,
-             color: str = "#000000") -> None:
+             text: str, font: str = DEFAULT_FONT, size: float = DEFAULT_FONT_SIZE,
+             color: str = DEFAULT_TEXT_COLOR) -> None:
     """Add new text at the given coordinates."""
     _snapshot(doc_id)
     doc = _open_doc(doc_id)
@@ -386,8 +384,8 @@ def add_text(doc_id: str, page_num: int, x: float, y: float,
 
         # Size the box to fit the text
         text_width = pymupdf.get_text_length(text, fontname=use_font, fontsize=size)
-        right = min(x + text_width + 10, page.rect.width - 5)
-        rect = pymupdf.Rect(x, y, right, y + size * 1.5)
+        right = min(x + text_width + IMAGE_PADDING, page.rect.width - PAGE_MARGIN)
+        rect = pymupdf.Rect(x, y, right, y + size * TEXT_BOX_HEIGHT_FACTOR)
 
         page.insert_textbox(
             rect,
@@ -418,15 +416,15 @@ def add_image(doc_id: str, page_num: int, x: float, y: float,
             img_w, img_h = tmp_pix.width, tmp_pix.height
             tmp_pix = None
             # Scale down to fit on page if needed, default to 200px wide
-            scale = min(200 / img_w, (page.rect.width - x - 10) / img_w)
+            scale = min(DEFAULT_IMAGE_WIDTH / img_w, (page.rect.width - x - IMAGE_PADDING) / img_w)
             if width <= 0:
                 width = img_w * scale
             if height <= 0:
                 height = img_h * scale
 
         # Clamp to page bounds
-        x1 = min(x + width, page.rect.width - 5)
-        y1 = min(y + height, page.rect.height - 5)
+        x1 = min(x + width, page.rect.width - PAGE_MARGIN)
+        y1 = min(y + height, page.rect.height - PAGE_MARGIN)
         rect = pymupdf.Rect(x, y, x1, y1)
 
         page.insert_image(rect, stream=image_bytes)
@@ -579,8 +577,8 @@ def resize_image(doc_id: str, page_num: int, image_index: int,
         img_bytes = img_data["image"]
 
         # Enforce minimum size
-        new_w = max(10, new_w)
-        new_h = max(10, new_h)
+        new_w = max(MIN_IMAGE_SIZE, new_w)
+        new_h = max(MIN_IMAGE_SIZE, new_h)
 
         # Clamp to page bounds
         page_rect = page.rect

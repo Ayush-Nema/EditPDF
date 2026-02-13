@@ -15,8 +15,8 @@ from .models import (
     ResizeImageRequest,
     UploadResponse,
 )
+from .config import MAX_UPLOAD_SIZE
 from .pdf_service import (
-    MAX_UPLOAD_SIZE,
     add_image,
     add_text,
     delete_image,

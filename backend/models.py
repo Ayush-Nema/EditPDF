@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from .config import DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_TEXT_COLOR
+
 
 class UploadResponse(BaseModel):
     doc_id: str
@@ -35,9 +37,9 @@ class AddTextRequest(BaseModel):
     x: float
     y: float
     text: str
-    font: str = "helv"
-    size: float = 12.0
-    color: str = "#000000"
+    font: str = DEFAULT_FONT
+    size: float = DEFAULT_FONT_SIZE
+    color: str = DEFAULT_TEXT_COLOR
 
 
 class ImageInfo(BaseModel):
