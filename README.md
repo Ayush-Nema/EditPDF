@@ -7,7 +7,7 @@ A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered page
 - **Backend**: Python, FastAPI, PyMuPDF (pymupdf), managed with `uv`
 - **Frontend**: Vanilla HTML/CSS/JS (no build step)
 - **Rendering**: Backend renders pages as PNG via `page.get_pixmap()` — pixel-perfect, no PDF.js needed
-- **Editing**: Redact + re-insert strategy preserves document structure (images, bookmarks, metadata)
+- **Editing**: Three-tier strategy — direct content-stream edit, redact + re-insert with extracted original font, or Base14 fallback — preserves original fonts and document structure
 
 ## How It Works
 
@@ -36,6 +36,7 @@ EditPDF/
 │   ├── image_service.py   # Image extraction, add/delete/move/resize
 │   ├── main.py            # FastAPI app, routes, static file serving
 │   ├── models.py          # Pydantic request/response models
+│   ├── stream_editor.py   # Direct PDF content-stream editing for font-preserving text swaps
 │   └── text_service.py    # Text extraction, editing, bullet detection, font/color helpers
 ├── frontend/
 │   ├── index.html
@@ -156,7 +157,7 @@ Ruff configuration lives in `pyproject.toml` under `[tool.ruff]`.
 
 ## Known Limitations
 
-- **Font substitution**: Embedded/subset fonts are replaced with the closest Base14 match (Helvetica, Times, Courier). A PDF using e.g. Garamond will have edits rendered in Helvetica.
+- **Font preservation best-effort**: Text-only edits try to preserve the original font via direct stream editing or font extraction. Falls back to the closest Base14 match (Helvetica, Times, Courier) when the original font can't be extracted or lacks needed glyphs.
 - **Single-span editing**: One text span at a time; no multi-span selection.
 - **No RTL/complex script support**.
 - **Upload limit**: 50 MB max file size.
