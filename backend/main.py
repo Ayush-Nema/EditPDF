@@ -5,6 +5,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
+from .config import MAX_UPLOAD_SIZE
 from .models import (
     AddTextRequest,
     DeleteImageRequest,
@@ -15,7 +16,6 @@ from .models import (
     ResizeImageRequest,
     UploadResponse,
 )
-from .config import MAX_UPLOAD_SIZE
 from .pdf_service import (
     add_image,
     add_text,
@@ -88,8 +88,9 @@ async def get_page_text(doc_id: str, page_num: int):
 @app.post("/api/documents/{doc_id}/pages/{page_num}/edit")
 async def edit_text(doc_id: str, page_num: int, req: EditRequest):
     try:
-        await _run_sync(edit_span, doc_id, page_num, req.span_index, req.new_text,
-                        req.font, req.size, req.color)
+        await _run_sync(
+            edit_span, doc_id, page_num, req.span_index, req.new_text, req.font, req.size, req.color
+        )
     except ValueError:
         raise HTTPException(400, "Invalid document id")
     except FileNotFoundError:
@@ -102,8 +103,9 @@ async def edit_text(doc_id: str, page_num: int, req: EditRequest):
 @app.post("/api/documents/{doc_id}/pages/{page_num}/add")
 async def add_new_text(doc_id: str, page_num: int, req: AddTextRequest):
     try:
-        await _run_sync(add_text, doc_id, page_num, req.x, req.y, req.text,
-                        req.font, req.size, req.color)
+        await _run_sync(
+            add_text, doc_id, page_num, req.x, req.y, req.text, req.font, req.size, req.color
+        )
     except ValueError:
         raise HTTPException(400, "Invalid document id")
     except FileNotFoundError:
@@ -166,8 +168,9 @@ async def move_image_endpoint(doc_id: str, page_num: int, req: MoveImageRequest)
 @app.post("/api/documents/{doc_id}/pages/{page_num}/resize-image")
 async def resize_image_endpoint(doc_id: str, page_num: int, req: ResizeImageRequest):
     try:
-        await _run_sync(resize_image, doc_id, page_num, req.image_index,
-                        req.x, req.y, req.width, req.height)
+        await _run_sync(
+            resize_image, doc_id, page_num, req.image_index, req.x, req.y, req.width, req.height
+        )
     except ValueError:
         raise HTTPException(400, "Invalid document id")
     except FileNotFoundError:

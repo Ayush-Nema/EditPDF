@@ -24,14 +24,16 @@ A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered page
 
 ```
 EditPDF/
+├── .pre-commit-config.yaml
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pyproject.toml
 ├── backend/
 │   ├── __init__.py
+│   ├── config.py          # Centralised configuration constants
 │   ├── main.py            # FastAPI app, routes, static file serving
-│   ├── pdf_service.py     # PyMuPDF operations (render, extract, edit)
-│   └── models.py          # Pydantic request/response models
+│   ├── models.py          # Pydantic request/response models
+│   └── pdf_service.py     # PyMuPDF operations (render, extract, edit)
 ├── frontend/
 │   ├── index.html
 │   ├── style.css
@@ -107,6 +109,36 @@ Open http://localhost:8000.
 | `Delete` / `Backspace` | Delete selected image or text span |
 
 Shortcuts are disabled when an input field is focused.
+
+## Development
+
+### Pre-commit hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to run checks automatically on every commit.
+
+| Hook | Purpose |
+|------|---------|
+| `check-added-large-files` | Blocks files larger than 1 MB from being committed |
+| `detect-private-key` | Prevents accidental commit of private keys |
+| `ruff` | Python linting with auto-fix |
+| `ruff-format` | Python code formatting |
+
+```bash
+# Install pre-commit (requires uv)
+uv tool install pre-commit
+
+# Install the git hook (runs automatically on every commit)
+pre-commit install
+
+# Run manually on all files
+pre-commit run --all-files
+
+# Run a specific hook
+pre-commit run ruff --all-files
+pre-commit run detect-private-key --all-files
+```
+
+Ruff configuration lives in `pyproject.toml` under `[tool.ruff]`.
 
 ## Known Limitations
 

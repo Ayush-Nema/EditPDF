@@ -20,13 +20,13 @@ DEFAULT_FONT_SIZE = 12.0
 DEFAULT_TEXT_COLOR = "#000000"
 
 # -- Layout constants --
-PAGE_MARGIN = 5        # px inset from page edges when clamping
-LINE_HEIGHT_FACTOR = 1.3   # bbox height = font_size * this
+PAGE_MARGIN = 5  # px inset from page edges when clamping
+LINE_HEIGHT_FACTOR = 1.3  # bbox height = font_size * this
 TEXT_BOX_HEIGHT_FACTOR = 1.5  # height of new-text boxes
-TEXT_WIDTH_PADDING = 2     # extra px added when expanding bbox for wider text
+TEXT_WIDTH_PADDING = 2  # extra px added when expanding bbox for wider text
 DEFAULT_IMAGE_WIDTH = 200  # default width (px) for auto-scaled images
-IMAGE_PADDING = 10         # px padding from page edge for images
-MIN_IMAGE_SIZE = 10        # minimum image dimension (px)
+IMAGE_PADDING = 10  # px padding from page edge for images
+MIN_IMAGE_SIZE = 10  # minimum image dimension (px)
 
 # -- Font mapping (PDF name → Base14 equivalent) --
 FONT_MAP: dict[str, str] = {
@@ -45,5 +45,10 @@ FONT_MAP: dict[str, str] = {
 
 # -- Bullet detection --
 SYMBOL_FONT_HINTS: set[str] = {
-    "symbol", "zapf", "dingbat", "wingding", "webding", "bullet",
+    "symbol",
+    "zapf",
+    "dingbat",
+    "wingding",
+    "webding",
+    "bullet",
 }

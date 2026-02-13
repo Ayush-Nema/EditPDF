@@ -74,8 +74,8 @@ def redo(doc_id: str) -> bool:
     path.write_bytes(stack.pop())
     return True
 
-_DOC_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
+_DOC_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
 
 def _validate_doc_id(doc_id: str) -> None:
@@ -128,12 +128,11 @@ def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
 # fonts), and ASCII markers that require a trailing space.
 _BULLET_RE = re.compile(
     r"^\s*(?:[\u2022\u2023\u25E6\u2043\u2219\u00B7\u25AA\u25B8\u25BA\u25CB\u25CF]"
-    r"|[\uE000-\uF8FF]"                       # Private Use Area (PDF symbol fonts)
-    r"|[\u2013\u2014\-\*]\s"                   # dashes / asterisk + space
-    r"|\d+[.\)]\s"                             # numbered lists
-    r"|[a-zA-Z][.\)]\s)"                       # lettered lists
+    r"|[\uE000-\uF8FF]"  # Private Use Area (PDF symbol fonts)
+    r"|[\u2013\u2014\-\*]\s"  # dashes / asterisk + space
+    r"|\d+[.\)]\s"  # numbered lists
+    r"|[a-zA-Z][.\)]\s)"  # lettered lists
 )
-
 
 
 def _line_is_bullet(line) -> bool:
@@ -175,7 +174,7 @@ def _union_bbox(bboxes):
         min(b[0] for b in bboxes),
         min(b[1] for b in bboxes),
         max(b[2] for b in bboxes),
-        max(b[3] for b in bboxes)
+        max(b[3] for b in bboxes),
     )
 
 
@@ -286,15 +285,17 @@ def extract_text_spans(doc_id: str, page_num: int) -> dict:
             if block["type"] != 0:  # text blocks only
                 continue
             for text, bbox, first_span in _split_block(block):
-                spans.append({
-                    "index": index,
-                    "text": text,
-                    "bbox": list(bbox),
-                    "font": first_span["font"],
-                    "size": round(first_span["size"], 2),
-                    "color": _int_to_hex_color(first_span["color"]),
-                    "flags": first_span["flags"],
-                })
+                spans.append(
+                    {
+                        "index": index,
+                        "text": text,
+                        "bbox": list(bbox),
+                        "font": first_span["font"],
+                        "size": round(first_span["size"], 2),
+                        "color": _int_to_hex_color(first_span["color"]),
+                        "flags": first_span["flags"],
+                    }
+                )
                 index += 1
 
         return {
@@ -307,9 +308,15 @@ def extract_text_spans(doc_id: str, page_num: int) -> dict:
         doc.close()
 
 
-def edit_span(doc_id: str, page_num: int, span_index: int,
-              new_text: str, font: str | None = None,
-              size: float | None = None, color: str | None = None) -> None:
+def edit_span(
+    doc_id: str,
+    page_num: int,
+    span_index: int,
+    new_text: str,
+    font: str | None = None,
+    size: float | None = None,
+    color: str | None = None,
+) -> None:
     """Edit a text span using redact + re-insert."""
     _snapshot(doc_id)
     doc = _open_doc(doc_id)
@@ -371,9 +378,16 @@ def edit_span(doc_id: str, page_num: int, span_index: int,
         doc.close()
 
 
-def add_text(doc_id: str, page_num: int, x: float, y: float,
-             text: str, font: str = DEFAULT_FONT, size: float = DEFAULT_FONT_SIZE,
-             color: str = DEFAULT_TEXT_COLOR) -> None:
+def add_text(
+    doc_id: str,
+    page_num: int,
+    x: float,
+    y: float,
+    text: str,
+    font: str = DEFAULT_FONT,
+    size: float = DEFAULT_FONT_SIZE,
+    color: str = DEFAULT_TEXT_COLOR,
+) -> None:
     """Add new text at the given coordinates."""
     _snapshot(doc_id)
     doc = _open_doc(doc_id)
@@ -402,8 +416,15 @@ def add_text(doc_id: str, page_num: int, x: float, y: float,
         doc.close()
 
 
-def add_image(doc_id: str, page_num: int, x: float, y: float,
-              image_bytes: bytes, width: float = 0, height: float = 0) -> None:
+def add_image(
+    doc_id: str,
+    page_num: int,
+    x: float,
+    y: float,
+    image_bytes: bytes,
+    width: float = 0,
+    height: float = 0,
+) -> None:
     """Insert an image at the given coordinates on a page."""
     _snapshot(doc_id)
     doc = _open_doc(doc_id)
@@ -465,13 +486,15 @@ def extract_images(doc_id: str, page_num: int) -> dict:
                 continue
             rects = page.get_image_rects(xref)
             for rect in rects:
-                images.append({
-                    "index": index,
-                    "bbox": [rect.x0, rect.y0, rect.x1, rect.y1],
-                    "width": rect.width,
-                    "height": rect.height,
-                    "xref": xref,
-                })
+                images.append(
+                    {
+                        "index": index,
+                        "bbox": [rect.x0, rect.y0, rect.x1, rect.y1],
+                        "width": rect.width,
+                        "height": rect.height,
+                        "xref": xref,
+                    }
+                )
                 index += 1
 
         return {
@@ -520,8 +543,7 @@ def delete_image(doc_id: str, page_num: int, image_index: int) -> None:
             doc.close()
 
 
-def move_image(doc_id: str, page_num: int, image_index: int,
-               new_x: float, new_y: float) -> None:
+def move_image(doc_id: str, page_num: int, image_index: int, new_x: float, new_y: float) -> None:
     """Move an image to new coordinates, preserving original dimensions."""
     _snapshot(doc_id)
     doc = _open_doc(doc_id)
@@ -558,9 +580,15 @@ def move_image(doc_id: str, page_num: int, image_index: int,
             doc.close()
 
 
-def resize_image(doc_id: str, page_num: int, image_index: int,
-                 new_x: float, new_y: float,
-                 new_w: float, new_h: float) -> None:
+def resize_image(
+    doc_id: str,
+    page_num: int,
+    image_index: int,
+    new_x: float,
+    new_y: float,
+    new_w: float,
+    new_h: float,
+) -> None:
     """Resize and reposition an image."""
     _snapshot(doc_id)
     doc = _open_doc(doc_id)
