@@ -246,8 +246,8 @@ function renderImageOverlays() {
     div.style.width = `${(x1 - x0) * scaleX}px`;
     div.style.height = `${(y1 - y0) * scaleY}px`;
 
-    // Resize handles
-    for (const corner of ["nw", "ne", "sw", "se"]) {
+    // Resize handles (corners + edges)
+    for (const corner of ["nw", "ne", "sw", "se", "n", "s", "e", "w"]) {
       const handle = document.createElement("div");
       handle.className = `resize-handle handle-${corner}`;
       handle.dataset.handle = corner;
