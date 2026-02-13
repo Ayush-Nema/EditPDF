@@ -157,6 +157,11 @@ main {
   transition: background 0.1s, border-color 0.1s;
 }
 
+.placement-mode .text-span,
+.placement-mode .image-overlay {
+  pointer-events: none;
+}
+
 .text-span:hover {
   background: rgba(233, 69, 96, 0.15);
   border-color: rgba(233, 69, 96, 0.4);

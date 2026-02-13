@@ -15,6 +15,7 @@ class TextSpan(BaseModel):
     text: str
     bbox: list[float]  # [x0, y0, x1, y1]
     font: str
+    normalized_font: str  # Base14 font used for edits
     size: float
     color: str  # hex "#rrggbb"
     flags: int  # bold/italic/etc bitmask

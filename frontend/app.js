@@ -218,9 +218,9 @@ function selectSpan(span) {
   spanProps.hidden = false;
   imgProps.hidden = true;
 
-  // Fill properties panel
+  // Fill properties panel — show normalized font so user sees what will be used
   propText.value = span.text;
-  propFont.value = span.font;
+  propFont.value = span.normalized_font || span.font;
   propSize.value = span.size;
   propColor.value = span.color;
 }
@@ -378,13 +378,15 @@ applyBtn.addEventListener("click", async () => {
   const span = state.selectedSpan;
   if (!span) return;
 
+  // Only send properties the user actually changed
   const body = {
     span_index: span.index,
     new_text: propText.value,
-    font: propFont.value,
-    size: parseFloat(propSize.value),
-    color: propColor.value,
   };
+  const origFont = span.normalized_font || span.font;
+  if (propFont.value !== origFont) body.font = propFont.value;
+  if (parseFloat(propSize.value) !== span.size) body.size = parseFloat(propSize.value);
+  if (propColor.value !== span.color) body.color = propColor.value;
 
   setLoading(applyBtn, true);
   setLoading(deleteBtn, true);
@@ -461,8 +463,10 @@ function exitImgMode() {
 function updateOverlayCursor() {
   if (state.addMode || state.imgMode) {
     spanOverlay.style.cursor = "crosshair";
+    spanOverlay.classList.add("placement-mode");
   } else {
     spanOverlay.style.cursor = "";
+    spanOverlay.classList.remove("placement-mode");
   }
 }
 
