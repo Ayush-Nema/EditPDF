@@ -24,6 +24,8 @@ const state = {
 
 // Elements
 const fileInput = $("#file-input");
+const uploadNewBtn = $("#upload-new-btn");
+const uploadNewInput = $("#upload-new-input");
 const downloadBtn = $("#download-btn");
 const emptyState = $("#empty-state");
 const pageWrapper = $("#page-wrapper");
@@ -73,18 +75,25 @@ updateSelectionButtons();
 
 // -- Upload --
 
-fileInput.addEventListener("change", async () => {
-  const file = fileInput.files[0];
-  if (!file) return;
+async function uploadPDF(file) {
+  if (!file || file.type !== "application/pdf") {
+    alert("Please select a valid PDF file.");
+    emptyState.classList.remove("is-uploading");
+    return;
+  }
 
   const form = new FormData();
   form.append("file", file);
 
+  emptyState.classList.add("is-uploading");
   setLoading(downloadBtn, true);
   try {
     const res = await fetch("/api/upload", { method: "POST", body: form });
     if (!res.ok) {
-      alert("Upload failed: " + (await res.json()).detail);
+      emptyState.classList.remove("is-uploading");
+      emptyState.classList.add("is-error");
+      const errSpan = emptyState.querySelector(".box__error span");
+      if (errSpan) errSpan.textContent = (await res.json()).detail;
       return;
     }
 
@@ -96,14 +105,68 @@ fileInput.addEventListener("change", async () => {
     emptyState.hidden = true;
     pageWrapper.hidden = false;
     downloadBtn.hidden = false;
+    uploadNewBtn.hidden = false;
     panel.hidden = false;
 
     loadPage();
   } finally {
+    emptyState.classList.remove("is-uploading");
     setLoading(downloadBtn, false);
-    // Reset so re-selecting the same file still triggers change
-    fileInput.value = "";
   }
+}
+
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files[0];
+  await uploadPDF(file);
+  fileInput.value = "";
+});
+
+uploadNewInput.addEventListener("change", async () => {
+  const file = uploadNewInput.files[0];
+  if (!file) return;
+  // Reset current state
+  state.selectedSpan = null;
+  state.selectedImage = null;
+  state.addMode = false;
+  state.imgMode = false;
+  spanOverlay.innerHTML = '<div id="img-preview-rect"><img id="img-preview-thumb" alt=""></div>';
+  pageImage.removeAttribute("src");
+  await uploadPDF(file);
+  uploadNewInput.value = "";
+});
+
+// -- Drag & drop PDF upload (CSS-Tricks style) --
+
+let dragCounter = 0;
+
+emptyState.addEventListener("dragenter", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dragCounter++;
+  emptyState.classList.add("is-dragover");
+});
+
+emptyState.addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dragCounter--;
+  if (dragCounter === 0) {
+    emptyState.classList.remove("is-dragover");
+  }
+});
+
+emptyState.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+});
+
+emptyState.addEventListener("drop", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dragCounter = 0;
+  emptyState.classList.remove("is-dragover");
+  const file = e.dataTransfer.files[0];
+  uploadPDF(file);
 });
 
 // -- Download --

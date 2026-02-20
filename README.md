@@ -20,6 +20,19 @@ A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered page
 7. Undo/redo any change with keyboard shortcuts
 8. Download the final PDF with all edits preserved
 
+## Makefile
+
+| Command | Description |
+|---------|-------------|
+| `make build` | Build and start containers in background |
+| `make up` | Start containers (no rebuild) |
+| `make down` | Stop containers |
+| `make restart` | Stop, rebuild, and start |
+| `make logs` | Follow container logs |
+| `make lint` | Run ruff linter on backend |
+| `make dev` | Run locally without Docker (with hot reload) |
+| `make clean` | Stop containers, remove volumes and dangling images |
+
 ## Project Structure
 
 ```

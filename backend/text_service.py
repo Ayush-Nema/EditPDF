@@ -95,11 +95,9 @@ def _collect_block_lines(block):
         parts = []
         line_first_span = None
         for span in line["spans"]:
-            if not span["text"].strip():
-                continue
-            if line_first_span is None:
+            if line_first_span is None and span["text"].strip():
                 line_first_span = span
-            if block_first_span is None:
+            if block_first_span is None and span["text"].strip():
                 block_first_span = span
             parts.append(span["text"])
         text = "".join(parts)
