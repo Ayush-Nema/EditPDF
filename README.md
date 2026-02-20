@@ -31,6 +31,7 @@ A locally-hosted PDF editor that runs in Docker. Upload PDFs, view rendered page
 | `make logs` | Follow container logs |
 | `make lint` | Run ruff linter on backend |
 | `make dev` | Run locally without Docker (with hot reload) |
+| `make purge-uploads` | Delete all uploaded PDFs (local + Docker volume) |
 | `make clean` | Stop containers, remove volumes and dangling images |
 
 ## Project Structure
