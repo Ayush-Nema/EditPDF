@@ -10,6 +10,7 @@ const state = {
   pageHeight: 0,
   selectedSpan: null,
   selectedImage: null,
+  filename: null,
   addMode: false,
   imgMode: false,
   imgDragging: false,
@@ -30,6 +31,7 @@ const downloadBtn = $("#download-btn");
 const emptyState = $("#empty-state");
 const pageWrapper = $("#page-wrapper");
 const pageImage = $("#page-image");
+const pageViewport = $("#page-viewport");
 const spanOverlay = $("#span-overlay");
 const pageInfo = $("#page-info");
 const prevBtn = $("#prev-btn");
@@ -56,6 +58,7 @@ const imgPropY = $("#img-prop-y");
 const imgPropW = $("#img-prop-w");
 const imgPropH = $("#img-prop-h");
 const imgDeleteBtn = $("#img-delete-btn");
+const toastContainer = $("#toast-container");
 
 // -- Helpers --
 
@@ -73,11 +76,59 @@ function updateSelectionButtons() {
 // Initialize button states
 updateSelectionButtons();
 
+// -- Toast notifications --
+
+function showToast(message, type = "info", duration = 3000) {
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${type}`;
+  toast.textContent = message;
+  toastContainer.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add("show");
+  });
+
+  setTimeout(() => {
+    toast.classList.remove("show");
+    toast.addEventListener("transitionend", () => toast.remove());
+  }, duration);
+}
+
+// -- Button text helper (preserves SVG icon) --
+
+function setButtonText(btn, text) {
+  for (const node of Array.from(btn.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      node.remove();
+    }
+  }
+  btn.appendChild(document.createTextNode(text));
+}
+
+// -- Header filename --
+
+function updateHeaderFilename() {
+  const h1 = document.querySelector("header h1");
+  let span = h1.querySelector(".header-filename");
+  if (state.filename) {
+    if (!span) {
+      span = document.createElement("span");
+      span.className = "header-filename";
+      h1.appendChild(span);
+    }
+    span.textContent = `\u2014 ${state.filename}`;
+    document.title = `EditPDF \u2014 ${state.filename}`;
+  } else {
+    if (span) span.remove();
+    document.title = "EditPDF";
+  }
+}
+
 // -- Upload --
 
 async function uploadPDF(file) {
   if (!file || file.type !== "application/pdf") {
-    alert("Please select a valid PDF file.");
+    showToast("Please select a valid PDF file.", "error");
     emptyState.classList.remove("is-uploading");
     return;
   }
@@ -101,6 +152,7 @@ async function uploadPDF(file) {
     state.docId = data.doc_id;
     state.pageCount = data.page_count;
     state.currentPage = 0;
+    state.filename = file.name;
 
     emptyState.hidden = true;
     pageWrapper.hidden = false;
@@ -108,6 +160,7 @@ async function uploadPDF(file) {
     uploadNewBtn.hidden = false;
     panel.hidden = false;
 
+    updateHeaderFilename();
     loadPage();
   } finally {
     emptyState.classList.remove("is-uploading");
@@ -202,6 +255,13 @@ async function loadPage() {
   deselectImage();
   updateSelectionButtons();
 
+  // Fade out (skip if no existing image loaded)
+  const hasSrc = pageImage.getAttribute("src");
+  if (hasSrc) {
+    pageViewport.classList.add("fade-out");
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
   // Set onload BEFORE setting src to avoid race with cached images
   const imageLoaded = new Promise((resolve) => {
     pageImage.onload = resolve;
@@ -218,6 +278,7 @@ async function loadPage() {
   if (!textRes.ok) {
     console.error("Failed to load text spans:", textRes.status);
     spanOverlay.querySelectorAll(".text-span").forEach((el) => el.remove());
+    pageViewport.classList.remove("fade-out");
     return;
   }
   const data = await textRes.json();
@@ -236,6 +297,9 @@ async function loadPage() {
   await imageLoaded;
   renderSpanOverlays();
   renderImageOverlays();
+
+  // Fade in
+  pageViewport.classList.remove("fade-out");
 }
 
 function renderSpanOverlays() {
@@ -252,11 +316,22 @@ function renderSpanOverlays() {
     div.className = "text-span";
     div.dataset.index = span.index;
 
+    // Tooltip with truncated text
+    const tooltipText = span.text.length > 60 ? span.text.slice(0, 57) + "\u2026" : span.text;
+    if (tooltipText) {
+      div.dataset.tooltip = tooltipText;
+    }
+
     const [x0, y0, x1, y1] = span.bbox;
     div.style.left = `${x0 * scaleX}px`;
     div.style.top = `${y0 * scaleY}px`;
     div.style.width = `${(x1 - x0) * scaleX}px`;
     div.style.height = `${(y1 - y0) * scaleY}px`;
+
+    // Flip tooltip below if span is near the top of the page
+    if (y0 * scaleY < 30) {
+      div.classList.add("tooltip-below");
+    }
 
     div.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -425,9 +500,10 @@ imgDeleteBtn.addEventListener("click", async () => {
       }
     );
     if (!res.ok) {
-      alert("Delete image failed: " + (await res.json()).detail);
+      showToast("Delete image failed: " + (await res.json()).detail, "error");
       return;
     }
+    showToast("Image deleted", "success");
     deselectImage();
     loadPage();
   } finally {
@@ -460,10 +536,11 @@ applyBtn.addEventListener("click", async () => {
     );
 
     if (!res.ok) {
-      alert("Edit failed: " + (await res.json()).detail);
+      showToast("Edit failed: " + (await res.json()).detail, "error");
       return;
     }
 
+    showToast("Text updated", "success");
     state.selectedSpan = null;
     updateSelectionButtons();
     loadPage();
@@ -493,10 +570,11 @@ deleteBtn.addEventListener("click", async () => {
     );
 
     if (!res.ok) {
-      alert("Delete failed: " + (await res.json()).detail);
+      showToast("Delete failed: " + (await res.json()).detail, "error");
       return;
     }
 
+    showToast("Text deleted", "success");
     state.selectedSpan = null;
     updateSelectionButtons();
     loadPage();
@@ -511,7 +589,7 @@ deleteBtn.addEventListener("click", async () => {
 function exitAddMode() {
   state.addMode = false;
   addModeBtn.classList.remove("active");
-  addModeBtn.textContent = "Enable Add Mode";
+  setButtonText(addModeBtn, "Enable Add Mode");
 }
 
 function exitImgMode() {
@@ -520,7 +598,7 @@ function exitImgMode() {
   state.imgDragStart = null;
   imgPreviewRect.style.display = "none";
   imgModeBtn.classList.remove("active");
-  imgModeBtn.textContent = "Enable Image Mode";
+  setButtonText(imgModeBtn, "Enable Image Mode");
 }
 
 function updateOverlayCursor() {
@@ -539,7 +617,7 @@ addModeBtn.addEventListener("click", () => {
   if (state.imgMode) exitImgMode();
   state.addMode = !state.addMode;
   addModeBtn.classList.toggle("active", state.addMode);
-  addModeBtn.textContent = state.addMode ? "Cancel Add Mode" : "Enable Add Mode";
+  setButtonText(addModeBtn, state.addMode ? "Cancel Add Mode" : "Enable Add Mode");
   updateOverlayCursor();
 });
 
@@ -547,13 +625,13 @@ addModeBtn.addEventListener("click", () => {
 
 imgModeBtn.addEventListener("click", () => {
   if (!imgFile.files[0]) {
-    alert("Select an image file first");
+    showToast("Select an image file first", "error");
     return;
   }
   if (state.addMode) exitAddMode();
   state.imgMode = !state.imgMode;
   imgModeBtn.classList.toggle("active", state.imgMode);
-  imgModeBtn.textContent = state.imgMode ? "Cancel Image Mode" : "Enable Image Mode";
+  setButtonText(imgModeBtn, state.imgMode ? "Cancel Image Mode" : "Enable Image Mode");
   updateOverlayCursor();
 });
 
@@ -588,7 +666,7 @@ spanOverlay.addEventListener("click", async (e) => {
 
   const text = addText.value.trim();
   if (!text) {
-    alert("Enter text to add first");
+    showToast("Enter text to add first", "error");
     return;
   }
 
@@ -607,9 +685,10 @@ spanOverlay.addEventListener("click", async (e) => {
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
     );
     if (!res.ok) {
-      alert("Add text failed: " + (await res.json()).detail);
+      showToast("Add text failed: " + (await res.json()).detail, "error");
       return;
     }
+    showToast("Text added", "success");
     addText.value = "";
     exitAddMode();
     updateOverlayCursor();
@@ -853,9 +932,10 @@ document.addEventListener("mouseup", async (e) => {
       { method: "POST", body: form }
     );
     if (!res.ok) {
-      alert("Add image failed: " + (await res.json()).detail);
+      showToast("Add image failed: " + (await res.json()).detail, "error");
       return;
     }
+    showToast("Image added", "success");
     imgFile.value = "";
     exitImgMode();
     updateOverlayCursor();

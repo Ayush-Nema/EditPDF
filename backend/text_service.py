@@ -8,8 +8,11 @@ from .config import (
     DEFAULT_FONT,
     DEFAULT_FONT_SIZE,
     DEFAULT_TEXT_COLOR,
+    FONT_FAMILY_MAP,
     FONT_MAP,
     IMAGE_PADDING,
+    LIBERATION_FONT_DIR,
+    LIBERATION_MAP,
     LINE_HEIGHT_FACTOR,
     PAGE_MARGIN,
     SYMBOL_FONT_HINTS,
@@ -310,22 +313,44 @@ def _extract_page_font(doc, page, font_name: str):
     """Extract a font matching *font_name* from the page.
 
     Returns a ``pymupdf.Font`` object built from the embedded font program,
-    or ``None`` if the font cannot be extracted.
+    or ``None`` if the font cannot be safely extracted.
+
+    Subset-embedded fonts (name contains "+") almost always have internal cmaps
+    that do NOT map Unicode codepoints to the correct glyphs.  ``has_glyph()``
+    will still return True (a glyph *exists* at that codepoint) but TextWriter
+    will render the wrong character.  We reject ALL subset fonts unconditionally
+    to guarantee readable output — the caller falls back to a Base14 font.
+
+    We also reject composite/CID fonts and Identity encodings which use
+    non-Unicode glyph mappings.
     """
+    UNSAFE_FTYPES = {"Type0", "CIDFontType0", "CIDFontType2", "Type3"}
+
     # Normalise target — strip subset prefix like "ABCDEF+"
     target = font_name
     if "+" in target:
-        target = target.split("+", 1)[1]
+        # Subset font — never trust it, always fall back to Base14
+        return None
     target_key = target.lower().replace(" ", "").replace("-", "")
 
-    for xref, _ext, _ftype, basefont, _name, _enc in page.get_fonts():
+    for xref, _ext, ftype, basefont, _name, enc in page.get_fonts():
         if xref == 0:
             continue
         candidate = basefont
         if "+" in candidate:
-            candidate = candidate.split("+", 1)[1]
+            # The matching font in the page is subset-embedded — reject it
+            return None
         if candidate.lower().replace(" ", "").replace("-", "") != target_key:
             continue
+
+        # Reject composite / CID / Type3 fonts
+        if ftype in UNSAFE_FTYPES:
+            return None
+
+        # Reject Identity encodings (CID-based, non-Unicode mapping)
+        if enc and enc.startswith("Identity"):
+            return None
+
         try:
             _basename, ext, _subtype, content = doc.extract_font(xref)
             if not content or ext == "n/a":
@@ -337,17 +362,16 @@ def _extract_page_font(doc, page, font_name: str):
 
 
 def _font_covers_text(font_obj, text: str) -> bool:
-    """Return True if *font_obj* covers enough of *text* to be usable.
+    """Return True if *font_obj* has glyphs for ALL characters in *text*.
 
-    A subset font may be missing a few glyphs (PyMuPDF's TextWriter handles
-    this gracefully), so we only reject fonts where the *majority* of unique
-    printable characters are absent — e.g. symbol/icon fonts.
+    Subset fonts only contain glyphs for the characters originally used in the
+    document.  If even one glyph is missing, TextWriter will produce a .notdef
+    placeholder or map to the wrong glyph, so we require full coverage.
     """
     unique = {ch for ch in text if ch.isprintable() and not ch.isspace()}
     if not unique:
         return True
-    present = sum(1 for ch in unique if font_obj.has_glyph(ord(ch)))
-    return present / len(unique) > 0.5
+    return all(font_obj.has_glyph(ord(ch)) for ch in unique)
 
 
 def _insert_with_extracted_font(page, bbox, text, font_obj, size, color) -> bool:
@@ -429,6 +453,55 @@ def _insert_with_base14(page, bbox, text, fontname, size, color):
         )
 
 
+def _load_liberation_font(font_name: str) -> pymupdf.Font | None:
+    """Load a Liberation font as a close visual match for *font_name*.
+
+    Returns ``None`` if the Liberation fonts are not installed (e.g. local dev
+    without Docker) or if the font file is missing.
+    """
+    if not LIBERATION_FONT_DIR.is_dir():
+        return None
+
+    # Strip subset prefix (e.g. "ABCDEF+Arial-BoldItalic" → "Arial-BoldItalic")
+    name = font_name
+    if "+" in name:
+        name = name.split("+", 1)[1]
+    lower = name.lower().replace(" ", "").replace("-", "")
+
+    # Detect style from font name
+    has_bold = "bold" in lower
+    has_italic = "italic" in lower or "oblique" in lower
+    if has_bold and has_italic:
+        style = "bolditalic"
+    elif has_bold:
+        style = "bold"
+    elif has_italic:
+        style = "italic"
+    else:
+        style = ""
+
+    # Classify into sans/serif/mono
+    family = "sans"  # default
+    for pattern, fam in FONT_FAMILY_MAP.items():
+        if pattern in lower:
+            family = fam
+            break
+
+    key = (family, style)
+    filename = LIBERATION_MAP.get(key)
+    if filename is None:
+        return None
+
+    path = LIBERATION_FONT_DIR / filename
+    if not path.is_file():
+        return None
+
+    try:
+        return pymupdf.Font(fontfile=str(path))
+    except Exception:
+        return None
+
+
 def edit_span(
     doc_id: str,
     page_num: int,
@@ -502,6 +575,14 @@ def edit_span(
                     use_size,
                     use_color,
                 )
+
+            # Attempt 2.5: Liberation font fallback
+            if not inserted:
+                lib_font = _load_liberation_font(orig_font)
+                if lib_font and _font_covers_text(lib_font, new_text):
+                    inserted = _insert_with_extracted_font(
+                        page, bbox, new_text, lib_font, use_size, use_color
+                    )
 
             # Attempt 3: Base14 fallback
             if not inserted:

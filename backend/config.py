@@ -1,5 +1,7 @@
 """Centralised configuration for the EditPDF backend."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 # -- Storage --
@@ -34,13 +36,62 @@ FONT_MAP: dict[str, str] = {
     "helvetica": "helv",
     "arial": "helv",
     "tisa": "helv",
+    "calibri": "helv",
+    "verdana": "helv",
+    "tahoma": "helv",
+    "trebuchet": "helv",
+    "segoeui": "helv",
     "times": "tiro",
     "timesnewroman": "tiro",
     "times-roman": "tiro",
+    "cambria": "tiro",
+    "georgia": "tiro",
+    "garamond": "tiro",
+    "palatino": "tiro",
     "courier": "cour",
     "couriernew": "cour",
+    "consolas": "cour",
+    "lucidaconsole": "cour",
     "symbol": "symb",
     "zapfdingbats": "zadb",
+}
+
+# -- Liberation font fallback --
+LIBERATION_FONT_DIR = Path("/usr/share/fonts/truetype/liberation2")
+
+LIBERATION_MAP: dict[tuple[str, str], str] = {
+    ("sans", ""): "LiberationSans-Regular.ttf",
+    ("sans", "bold"): "LiberationSans-Bold.ttf",
+    ("sans", "italic"): "LiberationSans-Italic.ttf",
+    ("sans", "bolditalic"): "LiberationSans-BoldItalic.ttf",
+    ("serif", ""): "LiberationSerif-Regular.ttf",
+    ("serif", "bold"): "LiberationSerif-Bold.ttf",
+    ("serif", "italic"): "LiberationSerif-Italic.ttf",
+    ("serif", "bolditalic"): "LiberationSerif-BoldItalic.ttf",
+    ("mono", ""): "LiberationMono-Regular.ttf",
+    ("mono", "bold"): "LiberationMono-Bold.ttf",
+    ("mono", "italic"): "LiberationMono-Italic.ttf",
+    ("mono", "bolditalic"): "LiberationMono-BoldItalic.ttf",
+}
+
+FONT_FAMILY_MAP: dict[str, str] = {
+    "arial": "sans",
+    "helvetica": "sans",
+    "calibri": "sans",
+    "verdana": "sans",
+    "tahoma": "sans",
+    "trebuchet": "sans",
+    "segoeui": "sans",
+    "times": "serif",
+    "timesnewroman": "serif",
+    "cambria": "serif",
+    "georgia": "serif",
+    "garamond": "serif",
+    "palatino": "serif",
+    "courier": "mono",
+    "couriernew": "mono",
+    "consolas": "mono",
+    "lucidaconsole": "mono",
 }
 
 # -- Bullet detection --
