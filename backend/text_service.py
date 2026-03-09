@@ -38,16 +38,20 @@ _BASE14_STYLES: dict[str, dict[str, str]] = {
 }
 
 
-def _normalize_font(font_name: str) -> str:
-    """Map a PDF font name to the closest Base14 font."""
+def _normalize_font(font_name: str, span_flags: int = 0) -> str:
+    """Map a PDF font name to the closest Base14 font.
+
+    *span_flags* is the PyMuPDF span flags bitmask (bit 4 = bold, bit 1 = italic).
+    Used as a fallback when the font name doesn't contain style keywords.
+    """
     key = font_name.lower().replace(" ", "").replace("-", "")
     # Strip subset prefix like "ABCDEF+"
     if "+" in key:
         key = key.split("+", 1)[1]
 
-    # Detect style
-    has_bold = "bold" in key
-    has_italic = "italic" in key or "oblique" in key
+    # Detect style from name, falling back to span flags
+    has_bold = "bold" in key or bool(span_flags & 16)
+    has_italic = "italic" in key or "oblique" in key or bool(span_flags & 2)
     if has_bold and has_italic:
         style = "bolditalic"
     elif has_bold:
@@ -306,6 +310,7 @@ def _find_span_by_index(page, span_index: int) -> dict | None:
         "font": first_span["font"],
         "size": first_span["size"],
         "color": first_span["color"],
+        "flags": first_span.get("flags", 0),
         "text": text,
     }
 
@@ -494,8 +499,11 @@ def _insert_with_base14(page, bbox, text, fontname, size, color):
         )
 
 
-def _load_liberation_font(font_name: str) -> pymupdf.Font | None:
+def _load_liberation_font(font_name: str, span_flags: int = 0) -> pymupdf.Font | None:
     """Load a Liberation font as a close visual match for *font_name*.
+
+    *span_flags* is the PyMuPDF span flags bitmask (bit 4 = bold, bit 1 = italic).
+    Used as a fallback when the font name doesn't contain style keywords.
 
     Returns ``None`` if the Liberation fonts are not installed (e.g. local dev
     without Docker) or if the font file is missing.
@@ -509,9 +517,9 @@ def _load_liberation_font(font_name: str) -> pymupdf.Font | None:
         name = name.split("+", 1)[1]
     lower = name.lower().replace(" ", "").replace("-", "")
 
-    # Detect style from font name
-    has_bold = "bold" in lower
-    has_italic = "italic" in lower or "oblique" in lower
+    # Detect style from font name, falling back to span flags
+    has_bold = "bold" in lower or bool(span_flags & 16)
+    has_italic = "italic" in lower or "oblique" in lower or bool(span_flags & 2)
     if has_bold and has_italic:
         style = "bolditalic"
     elif has_bold:
@@ -543,12 +551,15 @@ def _load_liberation_font(font_name: str) -> pymupdf.Font | None:
         return None
 
 
-def _download_google_font(font_name: str) -> pymupdf.Font | None:
+def _download_google_font(font_name: str, span_flags: int = 0) -> pymupdf.Font | None:
     """Download a metric-compatible Google Font as a fallback for *font_name*.
 
     Uses the Croscore/Crosextra families (Arimo, Tinos, Cousine, Carlito,
     Caladea) which are designed as metric-compatible replacements for common
     Windows/PDF fonts.  Downloads are cached in ``FONT_CACHE_DIR``.
+
+    *span_flags* is the PyMuPDF span flags bitmask (bit 4 = bold, bit 1 = italic).
+    Used as a fallback when the font name doesn't contain style keywords.
 
     Returns a ``pymupdf.Font`` on success, or ``None`` on any failure
     (no network, timeout, unknown font family, etc.).
@@ -560,23 +571,23 @@ def _download_google_font(font_name: str) -> pymupdf.Font | None:
             name = name.split("+", 1)[1]
         lower = name.lower().replace(" ", "").replace("-", "").replace(",", "")
 
-        # Detect bold/italic from name
-        has_bold = "bold" in lower
-        has_italic = "italic" in lower or "oblique" in lower
+        # Detect bold/italic from name, falling back to span flags
+        has_bold = "bold" in lower or bool(span_flags & 16)
+        has_italic = "italic" in lower or "oblique" in lower or bool(span_flags & 2)
 
         # Get core name (strip PS suffixes + style words)
         core = _font_core_name(font_name)
         for style_word in ("bold", "italic", "oblique"):
             core = core.replace(style_word, "")
 
-        # Look up in Google Fonts map
+        # Look up in Google Fonts map, default to Arimo (wide Unicode coverage)
         family = None
         for pattern, fam in GOOGLE_FONTS_MAP.items():
             if pattern in core:
                 family = fam
                 break
         if family is None:
-            return None
+            family = "Arimo"
 
         # Compute weight and italic flag
         weight = 700 if has_bold else 400
@@ -652,6 +663,7 @@ def edit_span(
         orig_font = target["font"]
         orig_size = target["size"]
         orig_color = _int_to_hex_color(target["color"])
+        orig_flags = target.get("flags", 0)
 
         use_size = size if size is not None else orig_size
         use_color = _hex_to_rgb(color if color else orig_color)
@@ -700,7 +712,7 @@ def edit_span(
 
             # Attempt 2.5: Liberation font fallback
             if not inserted:
-                lib_font = _load_liberation_font(orig_font)
+                lib_font = _load_liberation_font(orig_font, span_flags=orig_flags)
                 if lib_font and _font_covers_text(lib_font, new_text):
                     inserted = _insert_with_extracted_font(
                         page, bbox, new_text, lib_font, use_size, use_color
@@ -708,7 +720,7 @@ def edit_span(
 
             # Attempt 3: Google Fonts download
             if not inserted:
-                gf = _download_google_font(orig_font)
+                gf = _download_google_font(orig_font, span_flags=orig_flags)
                 if gf and _font_covers_text(gf, new_text):
                     inserted = _insert_with_extracted_font(
                         page, bbox, new_text, gf, use_size, use_color
@@ -716,7 +728,11 @@ def edit_span(
 
             # Attempt 4: Base14 fallback
             if not inserted:
-                use_font = _normalize_font(font) if font else _normalize_font(orig_font)
+                use_font = (
+                    _normalize_font(font)
+                    if font
+                    else _normalize_font(orig_font, span_flags=orig_flags)
+                )
                 _insert_with_base14(
                     page,
                     bbox,
