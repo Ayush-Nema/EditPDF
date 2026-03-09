@@ -625,7 +625,13 @@ def _find_and_replace_text(
             cached = cmap_cache[ft]
             if cached is not None:
                 return False, True, None, cached[0], cached[1], cached[2]
-            # No CMap available — skip this font
+            # No CMap available — for non-CID subset fonts without /Differences,
+            # fall back to standard encoding (WinAnsi/MacRoman/latin-1 works fine
+            # for simple TrueType subsets that just lack a ToUnicode CMap).
+            if not is_cid and not has_diff:
+                enc = _get_font_encoding(doc, page, ft)
+                return False, False, enc, None, None, 1
+            # CID or /Differences without CMap — truly unsafe, skip
             return True, False, None, None, None, 1
 
         enc = _get_font_encoding(doc, page, ft)

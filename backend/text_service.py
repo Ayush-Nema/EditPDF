@@ -1,6 +1,9 @@
 """Text extraction, editing, bullet detection, and font/color helpers."""
 
+import logging
+import os
 import re
+import urllib.request
 
 import pymupdf
 
@@ -8,8 +11,11 @@ from .config import (
     DEFAULT_FONT,
     DEFAULT_FONT_SIZE,
     DEFAULT_TEXT_COLOR,
+    FONT_CACHE_DIR,
     FONT_FAMILY_MAP,
     FONT_MAP,
+    GOOGLE_FONTS_MAP,
+    GOOGLE_FONTS_TIMEOUT,
     IMAGE_PADDING,
     LIBERATION_FONT_DIR,
     LIBERATION_MAP,
@@ -23,6 +29,14 @@ from .config import (
 from .document import _open_doc
 from .history import _snapshot
 
+logger = logging.getLogger(__name__)
+
+_BASE14_STYLES: dict[str, dict[str, str]] = {
+    "helv": {"": "helv", "bold": "hebo", "italic": "heit", "bolditalic": "hebi"},
+    "tiro": {"": "tiro", "bold": "tibo", "italic": "tiit", "bolditalic": "tibi"},
+    "cour": {"": "cour", "bold": "cobo", "italic": "coit", "bolditalic": "cobi"},
+}
+
 
 def _normalize_font(font_name: str) -> str:
     """Map a PDF font name to the closest Base14 font."""
@@ -30,23 +44,26 @@ def _normalize_font(font_name: str) -> str:
     # Strip subset prefix like "ABCDEF+"
     if "+" in key:
         key = key.split("+", 1)[1]
+
+    # Detect style
+    has_bold = "bold" in key
+    has_italic = "italic" in key or "oblique" in key
+    if has_bold and has_italic:
+        style = "bolditalic"
+    elif has_bold:
+        style = "bold"
+    elif has_italic:
+        style = "italic"
+    else:
+        style = ""
+
     for pattern, base14 in FONT_MAP.items():
         if pattern in key:
-            if "bold" in key and "italic" in key:
-                return base14 + "bi"
-            if "bold" in key:
-                return base14 + "bo"
-            if "italic" in key or "oblique" in key:
-                return base14 + "it"
-            return base14
-    # Default fallback
-    if "bold" in font_name.lower() and "italic" in font_name.lower():
-        return "hebo"
-    if "bold" in font_name.lower():
-        return "hebo"
-    if "italic" in font_name.lower():
-        return "heit"
-    return "helv"
+            variants = _BASE14_STYLES.get(base14, {})
+            return variants.get(style, base14)
+
+    # Default fallback → Helvetica family
+    return _BASE14_STYLES["helv"].get(style, "helv")
 
 
 def _int_to_hex_color(color_int: int) -> str:
@@ -120,7 +137,15 @@ def _collect_block_lines(block):
         min_h = min(prev_h, curr_h)
         y_overlap = min(prev_bbox[3], bbox[3]) - max(prev_bbox[1], bbox[1])
         if min_h > 0 and y_overlap > 0.5 * min_h:
-            # Same visual line — merge with a space separator
+            # Same visual row — but check horizontal gap first.
+            # Don't merge items that are far apart (e.g. left-aligned label
+            # and right-aligned value with whitespace in between).
+            h_gap = bbox[0] - prev_bbox[2]
+            font_size = prev_span.get("size", 12) if prev_span else 12
+            if h_gap > font_size * 3:
+                lines.append((text, bbox, is_bullet, first_span))
+                continue
+            # Close enough — merge with a space separator
             sep = "" if prev_text.endswith(" ") or text.startswith(" ") else " "
             merged_bbox = (
                 min(prev_bbox[0], bbox[0]),
@@ -163,15 +188,25 @@ def _split_block(block):
     has_bullets = any(is_b for _, _, is_b, _ in lines)
 
     if not has_bullets:
-        # Split on large vertical gaps between consecutive lines.
+        # Split on large vertical gaps OR large horizontal gaps between
+        # consecutive lines.  The horizontal check catches items that sit
+        # on the same y-row but are far apart (e.g. a left label and a
+        # right-aligned value).
         groups: list[list[tuple[str, tuple, dict]]] = [[(lines[0][0], lines[0][1], lines[0][3])]]
         for i in range(1, len(lines)):
             prev_bbox = lines[i - 1][1]
             cur_bbox = lines[i][1]
             line_height = prev_bbox[3] - prev_bbox[1]
             gap = cur_bbox[1] - prev_bbox[3]
+            # Vertical gap split
             if gap > line_height:
                 groups.append([])
+            else:
+                # Horizontal gap split (same y-row, far apart)
+                h_gap = cur_bbox[0] - prev_bbox[2]
+                font_size = lines[i - 1][3].get("size", 12) if lines[i - 1][3] else 12
+                if h_gap > font_size * 3:
+                    groups.append([])
             groups[-1].append((lines[i][0], lines[i][1], lines[i][3]))
 
         for group in groups:
@@ -309,46 +344,52 @@ def extract_text_spans(doc_id: str, page_num: int) -> dict:
         doc.close()
 
 
+def _font_core_name(name: str) -> str:
+    """Reduce a font name to its core for fuzzy matching.
+
+    Strips subset prefixes, PostScript suffixes, style words, and
+    normalises whitespace/punctuation so that names like ``ArialMT``,
+    ``Arial Regular``, and ``ABCDEF+Arial-BoldMT`` all compare correctly.
+    """
+    if "+" in name:
+        name = name.split("+", 1)[1]
+    key = name.lower().replace(" ", "").replace("-", "").replace(",", "")
+    # Strip common PostScript / style suffixes (may appear at end or before
+    # style keywords like "bold"/"italic").
+    for suffix in ("psmt", "mt"):
+        if key.endswith(suffix):
+            key = key[: -len(suffix)]
+    # Remove "ps" tag that can appear mid-name (e.g. "TimesNewRomanPS-Bold")
+    key = re.sub(r"ps(?=bold|italic|$)", "", key)
+    # Strip trailing "regular" / "roman" style names
+    for suffix in ("regular", "roman"):
+        if key.endswith(suffix):
+            key = key[: -len(suffix)]
+    return key
+
+
 def _extract_page_font(doc, page, font_name: str):
     """Extract a font matching *font_name* from the page.
 
     Returns a ``pymupdf.Font`` object built from the embedded font program,
     or ``None`` if the font cannot be safely extracted.
 
-    Subset-embedded fonts (name contains "+") almost always have internal cmaps
-    that do NOT map Unicode codepoints to the correct glyphs.  ``has_glyph()``
-    will still return True (a glyph *exists* at that codepoint) but TextWriter
-    will render the wrong character.  We reject ALL subset fonts unconditionally
-    to guarantee readable output — the caller falls back to a Base14 font.
-
-    We also reject composite/CID fonts and Identity encodings which use
-    non-Unicode glyph mappings.
+    We only reject Type3 fonts (synthetic/bitmap, no TrueType data).
+    Subset and CID/Type0 fonts are allowed — modern PDF generators
+    (Word, Chrome, etc.) produce well-formed subsets whose TrueType
+    cmap tables correctly map Unicode codepoints to glyphs.  The caller
+    still validates via ``_font_covers_text`` before using the font.
     """
-    UNSAFE_FTYPES = {"Type0", "CIDFontType0", "CIDFontType2", "Type3"}
+    target_core = _font_core_name(font_name)
 
-    # Normalise target — strip subset prefix like "ABCDEF+"
-    target = font_name
-    if "+" in target:
-        # Subset font — never trust it, always fall back to Base14
-        return None
-    target_key = target.lower().replace(" ", "").replace("-", "")
-
-    for xref, _ext, ftype, basefont, _name, enc in page.get_fonts():
+    for xref, _ext, ftype, basefont, _name, _enc in page.get_fonts():
         if xref == 0:
             continue
-        candidate = basefont
-        if "+" in candidate:
-            # The matching font in the page is subset-embedded — reject it
-            return None
-        if candidate.lower().replace(" ", "").replace("-", "") != target_key:
+        if _font_core_name(basefont) != target_core:
             continue
 
-        # Reject composite / CID / Type3 fonts
-        if ftype in UNSAFE_FTYPES:
-            return None
-
-        # Reject Identity encodings (CID-based, non-Unicode mapping)
-        if enc and enc.startswith("Identity"):
+        # Type3 fonts are synthetic/bitmap — no usable TrueType data
+        if ftype == "Type3":
             return None
 
         try:
@@ -502,6 +543,85 @@ def _load_liberation_font(font_name: str) -> pymupdf.Font | None:
         return None
 
 
+def _download_google_font(font_name: str) -> pymupdf.Font | None:
+    """Download a metric-compatible Google Font as a fallback for *font_name*.
+
+    Uses the Croscore/Crosextra families (Arimo, Tinos, Cousine, Carlito,
+    Caladea) which are designed as metric-compatible replacements for common
+    Windows/PDF fonts.  Downloads are cached in ``FONT_CACHE_DIR``.
+
+    Returns a ``pymupdf.Font`` on success, or ``None`` on any failure
+    (no network, timeout, unknown font family, etc.).
+    """
+    try:
+        # Strip subset prefix
+        name = font_name
+        if "+" in name:
+            name = name.split("+", 1)[1]
+        lower = name.lower().replace(" ", "").replace("-", "").replace(",", "")
+
+        # Detect bold/italic from name
+        has_bold = "bold" in lower
+        has_italic = "italic" in lower or "oblique" in lower
+
+        # Get core name (strip PS suffixes + style words)
+        core = _font_core_name(font_name)
+        for style_word in ("bold", "italic", "oblique"):
+            core = core.replace(style_word, "")
+
+        # Look up in Google Fonts map
+        family = None
+        for pattern, fam in GOOGLE_FONTS_MAP.items():
+            if pattern in core:
+                family = fam
+                break
+        if family is None:
+            return None
+
+        # Compute weight and italic flag
+        weight = 700 if has_bold else 400
+        italic = 1 if has_italic else 0
+
+        # Cache path
+        FONT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_file = FONT_CACHE_DIR / f"{family}-{weight}-{italic}.ttf"
+
+        # Return cached font if available
+        if cache_file.is_file():
+            return pymupdf.Font(fontbuffer=cache_file.read_bytes())
+
+        # Fetch CSS from Google Fonts (User-Agent triggers TTF format)
+        css_url = (
+            f"https://fonts.googleapis.com/css2"
+            f"?family={family.replace(' ', '+')}:ital,wght@{italic},{weight}"
+        )
+        req = urllib.request.Request(css_url, headers={"User-Agent": "Python-urllib/3.0"})
+        with urllib.request.urlopen(req, timeout=GOOGLE_FONTS_TIMEOUT) as resp:
+            css = resp.read().decode("utf-8")
+
+        # Parse TTF URL from CSS
+        ttf_match = re.search(r"url\((https://[^)]+\.ttf)\)", css)
+        if not ttf_match:
+            logger.debug("No TTF URL found in Google Fonts CSS for %s", family)
+            return None
+        ttf_url = ttf_match.group(1)
+
+        # Download TTF data
+        req = urllib.request.Request(ttf_url, headers={"User-Agent": "Python-urllib/3.0"})
+        with urllib.request.urlopen(req, timeout=GOOGLE_FONTS_TIMEOUT) as resp:
+            data = resp.read()
+
+        # Atomic write to cache
+        tmp_path = cache_file.with_suffix(".tmp")
+        tmp_path.write_bytes(data)
+        os.replace(tmp_path, cache_file)
+
+        return pymupdf.Font(fontbuffer=data)
+    except Exception:
+        logger.debug("Google Font download failed for %s", font_name, exc_info=True)
+        return None
+
+
 def edit_span(
     doc_id: str,
     page_num: int,
@@ -516,7 +636,9 @@ def edit_span(
     Strategy (tried in order):
       1. Direct content-stream edit — best fidelity, text-only changes.
       2. Redact + reinsert with the *original* font extracted from the PDF.
-      3. Redact + reinsert with a Base14 substitute (last resort).
+      2.5. Redact + reinsert with a Liberation font (Docker only).
+      3. Redact + reinsert with a Google Font download (cached).
+      4. Redact + reinsert with a Base14 substitute (last resort).
     """
     _snapshot(doc_id)
     doc = _open_doc(doc_id)
@@ -584,7 +706,15 @@ def edit_span(
                         page, bbox, new_text, lib_font, use_size, use_color
                     )
 
-            # Attempt 3: Base14 fallback
+            # Attempt 3: Google Fonts download
+            if not inserted:
+                gf = _download_google_font(orig_font)
+                if gf and _font_covers_text(gf, new_text):
+                    inserted = _insert_with_extracted_font(
+                        page, bbox, new_text, gf, use_size, use_color
+                    )
+
+            # Attempt 4: Base14 fallback
             if not inserted:
                 use_font = _normalize_font(font) if font else _normalize_font(orig_font)
                 _insert_with_base14(

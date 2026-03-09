@@ -6,6 +6,7 @@ from pathlib import Path
 
 # -- Storage --
 UPLOAD_DIR = Path("uploads")
+FONT_CACHE_DIR = UPLOAD_DIR / ".font_cache"
 
 # -- Upload limits --
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -93,6 +94,34 @@ FONT_FAMILY_MAP: dict[str, str] = {
     "consolas": "mono",
     "lucidaconsole": "mono",
 }
+
+# -- Google Fonts fallback --
+GOOGLE_FONTS_MAP: dict[str, str] = {
+    # Sans-serif → Arimo (metric-compatible with Arial/Helvetica)
+    "arial": "Arimo",
+    "helvetica": "Arimo",
+    "verdana": "Arimo",
+    "tahoma": "Arimo",
+    "trebuchet": "Arimo",
+    "segoeui": "Arimo",
+    # Calibri → Carlito (exact metric-compatible replacement)
+    "calibri": "Carlito",
+    # Serif → Tinos (metric-compatible with Times New Roman)
+    "times": "Tinos",
+    "timesnewroman": "Tinos",
+    "georgia": "Tinos",
+    "garamond": "Tinos",
+    "palatino": "Tinos",
+    # Cambria → Caladea (exact metric-compatible replacement)
+    "cambria": "Caladea",
+    # Monospace → Cousine (metric-compatible with Courier New)
+    "courier": "Cousine",
+    "couriernew": "Cousine",
+    "consolas": "Cousine",
+    "lucidaconsole": "Cousine",
+}
+
+GOOGLE_FONTS_TIMEOUT = 5  # seconds
 
 # -- Bullet detection --
 SYMBOL_FONT_HINTS: set[str] = {
